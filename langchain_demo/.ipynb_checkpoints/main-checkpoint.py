@@ -67,40 +67,40 @@ if __name__ == "__main__":
     llm.load_model(MODEL_PATH)
     prompt = hub.pull("hwchase17/structured-chat-agent")
 
-    # # for single parameter without history
+    # for single parameter without history
 
-    # tools = [Calculator()]
-    # agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
-    # agent_executor = AgentExecutor(agent=agent, tools=tools)
-    # ans = agent_executor.invoke({"input": "34 * 34"})
-    # print(ans)
+    tools = [Calculator()]
+    agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools)
+    ans = agent_executor.invoke({"input": "34 * 34"})
+    print(ans)
 
-    # # for singe parameter with history
+    # for singe parameter with history
 
-    # tools = [Weather()]
-    # agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
-    # agent_executor = AgentExecutor(agent=agent, tools=tools)
-    # ans = agent_executor.invoke(
-    #     {
-    #         "input": "厦门比北京热吗?",
-    #         "chat_history": [
-    #             HumanMessage(content="北京温度多少度"),
-    #             AIMessage(content="北京现在12度"),
-    #         ],
-    #     }
-    # )
-    # print(ans)
+    tools = [Weather()]
+    agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools)
+    ans = agent_executor.invoke(
+        {
+            "input": "厦门比北京热吗?",
+            "chat_history": [
+                HumanMessage(content="北京温度多少度"),
+                AIMessage(content="北京现在12度"),
+            ],
+        }
+    )
+    print(ans)
 
-    # # for multiple parameters without history
+    # for multiple parameters without history
 
-    # tools = [DistanceConverter()]
-    # agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
-    # agent_executor = AgentExecutor(agent=agent, tools=tools)
-    # ans = agent_executor.invoke({"input": "how many meters in 30 km?"})
+    tools = [DistanceConverter()]
+    agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools)
+    ans = agent_executor.invoke({"input": "how many meters in 30 km?"})
 
-    # print(ans)
+    print(ans)
 
-    # # for using langchain tools
+    # for using langchain tools
 
     tools = load_tools(["arxiv"], llm=llm)
     agent = create_structured_chat_agent(llm=llm, tools=tools, prompt=prompt)

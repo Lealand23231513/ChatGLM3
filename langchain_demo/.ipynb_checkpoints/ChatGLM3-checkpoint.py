@@ -116,8 +116,8 @@ Action:
         else:
             self._extract_observation(prompt)
             query = ""
-        # print(query)
-        # print(self.history)
+        print(query)
+        print(self.history)
         x, self.history = self.model.chat(
             self.tokenizer,
             query,
@@ -126,11 +126,11 @@ Action:
             max_length=self.max_token,
             temperature=self.temperature,
         )
-        # print()
-        # print(x)
-        # print()
-        # print(self.history)
-        # print()
+        print()
+        print(x)
+        print()
+        print(self.history)
+        print()
         response = self._extract_tool()
         history.append((prompt, response))
         return response

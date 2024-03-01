@@ -35,10 +35,10 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
-from typing import List, Literal, Optional, Union, cast
+from typing import List, Literal, Optional, Union
 from loguru import logger
 from pydantic import BaseModel, Field
-from transformers import AutoTokenizer, AutoModel, PreTrainedTokenizer
+from transformers import AutoTokenizer, AutoModel
 from utils import process_response, generate_chatglm3, generate_stream_chatglm3
 from sentence_transformers import SentenceTransformer
 
@@ -88,20 +88,17 @@ class ModelList(BaseModel):
     object: str = "list"
     data: List[ModelCard] = []
 
+
 class FunctionCallResponse(BaseModel):
     name: Optional[str] = None
     arguments: Optional[str] = None
 
-class ToolCallResponse(BaseModel):
-    function: FunctionCallResponse
-    id: str
-    type: str = 'function'
 
 class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system", "tool"]
-    content: str|None = None
+    role: Literal["user", "assistant", "system", "function"]
+    content: str = None
     name: Optional[str] = None
-    tool_calls: Optional[List[ToolCallResponse]] = None
+    function_call: Optional[FunctionCallResponse] = None
 
 
 class DeltaMessage(BaseModel):
@@ -151,7 +148,7 @@ class ChatCompletionRequest(BaseModel):
 class ChatCompletionResponseChoice(BaseModel):
     index: int
     message: ChatMessage
-    finish_reason: Literal["stop", "length", "tool_calls"]
+    finish_reason: Literal["stop", "length", "function_call"]
 
 
 class ChatCompletionResponseStreamChoice(BaseModel):
@@ -298,7 +295,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
     if response["text"].startswith("\n"):
         response["text"] = response["text"][1:]
     response["text"] = response["text"].strip()
-    logger.debug(f"==== raw response ====\n{response}")
+
     usage = UsageInfo()
     function_call, finish_reason = None, "stop"
     if request.tools:
@@ -306,20 +303,17 @@ async def create_chat_completion(request: ChatCompletionRequest):
             function_call = process_response(response["text"], use_tool=True)
         except:
             logger.warning("Failed to parse tool call, maybe the response is not a tool call or have been answered.")
-    tool_calls = None
-    if isinstance(function_call, dict):#TODO: only one tool call
-        finish_reason = "tool_calls"
+
+    if isinstance(function_call, dict):
+        finish_reason = "function_call"
         function_call = FunctionCallResponse(**function_call)
-        tool_calls = [ToolCallResponse(
-            function=function_call,
-            id='',# TODO: generate tool_call id
-            type='function'
-        )]
+
     message = ChatMessage(
         role="assistant",
-        content=response["text"] if tool_calls is None else None,
-        tool_calls=tool_calls,
+        content=response["text"],
+        function_call=function_call if isinstance(function_call, FunctionCallResponse) else None,
     )
+
     logger.debug(f"==== message ====\n{message}")
 
     choice_data = ChatCompletionResponseChoice(
@@ -528,7 +522,7 @@ def contains_custom_function(value: str) -> bool:
 
 if __name__ == "__main__":
     # Load LLM
-    tokenizer = cast(PreTrainedTokenizer, AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True))
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
     model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
 
     # load Embedding

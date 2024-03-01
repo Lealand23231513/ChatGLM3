@@ -55,7 +55,7 @@ def generate_stream_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokeni
     messages = process_chatglm_messages(messages, tools=tools)
     query, role = messages[-1]["content"], messages[-1]["role"]
 
-    inputs = tokenizer.build_chat_input(query, history=messages[:-1], role=role)# type:ignore
+    inputs = tokenizer.build_chat_input(query, history=messages[:-1], role=role)
     inputs = inputs.to(model.device)
     input_echo_len = len(inputs["input_ids"][0])
 
@@ -64,7 +64,7 @@ def generate_stream_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokeni
 
     eos_token_id = [
         tokenizer.eos_token_id,
-        tokenizer.get_command("<|user|>"),# type:ignore
+        tokenizer.get_command("<|user|>"),
     ]
 
     gen_kwargs = {
@@ -132,7 +132,7 @@ def process_chatglm_messages(messages, tools=None):
         )
 
     for m in _messages:
-        role, content, tool_calls = m.role, m.content, m.tool_calls
+        role, content, func_call = m.role, m.content, m.function_call
         if role == "function":
             messages.append(
                 {
@@ -141,7 +141,7 @@ def process_chatglm_messages(messages, tools=None):
                 }
             )
 
-        elif role == "assistant" and tool_calls is not None:
+        elif role == "assistant" and func_call is not None:
             for response in content.split("<|assistant|>"):
                 metadata, sub_content = response.split("\n", maxsplit=1)
                 messages.append(

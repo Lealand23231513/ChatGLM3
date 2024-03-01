@@ -1,28 +1,46 @@
 import json
+from json import tool
 
 from openai import OpenAI
 from colorama import init, Fore
 from loguru import logger
 
 from tool_register import get_tools, dispatch_tool
-
+import logging
+logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 init(autoreset=True)
-client = OpenAI(
-  base_url="http://127.0.0.1:8000/v1",
-  api_key = "xxx"
-)
 
-tools = get_tools()
+
+
 
 
 def run_conversation(query: str, stream=False, tools=None, max_retry=5):
     params = dict(model="chatglm3", messages=[{"role": "user", "content": query}], stream=stream)
     if tools:
         params["tools"] = tools
-    response = client.chat.completions.create(**params)
-
+    client = OpenAI(
+    base_url="http://127.0.0.1:8765/v1",
+    api_key = "EMPTY"
+    )
+    # client = OpenAI(
+    #     api_key = "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"
+    # )
+    response = client.chat.completions.create(
+        model='chatglm3',
+        messages=[{"role": "user", "content": query}],
+        stream=stream,
+        tools=tools#type: ignore
+    )
+    # response = client.chat.completions.create(
+    #     model='gpt-3.5-turbo-0125',
+    #     messages=[{"role": "user", "content": query}],
+    #     stream=stream,
+    #     tools=tools#type: ignore
+    # )
     for _ in range(max_retry):
         if not stream:
+            print(response.choices[0].message.tool_calls)
             if response.choices[0].message.function_call:
                 function_call = response.choices[0].message.function_call
                 logger.info(f"Function Call Response: {function_call.model_dump()}")
@@ -39,6 +57,9 @@ def run_conversation(query: str, stream=False, tools=None, max_retry=5):
                         "content": tool_response,  # 调用函数返回结果
                     }
                 )
+            # elif response.choices[0].finish_reason == "function_call":
+            #     print("\n")
+            #     function_call = 
             else:
                 reply = response.choices[0].message.content
                 logger.info(f"Final Reply: \n{reply}")
@@ -84,10 +105,57 @@ def run_conversation(query: str, stream=False, tools=None, max_retry=5):
 
 
 if __name__ == "__main__":
-    query = "你是谁"
-    run_conversation(query, stream=True)
+    from openai import OpenAI
+    client = OpenAI(
+        api_key = "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"
+    )
 
-    logger.info("\n=========== next conversation ===========")
+    tools = [
+    {
+        "type": "function",
+        "function": {
+        "name": "get_current_weather",
+        "description": "Get the current weather in a given location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            "location": {
+                "type": "string",
+                "description": "The city and state, e.g. San Francisco, CA",
+            },
+            "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
+            },
+            "required": ["location"],
+        },
+        }
+    }
+    ]
+    messages = [{"role": "user", "content": "What's the weather like in Boston today?"}]
+    completion = client.chat.completions.create(
+    model="gpt-3.5-turbo",
+    messages=messages,
+    tools=tools,
+    tool_choice="auto"
+    )
+    
+    query = "你是谁"
+    tools = get_tools()
+    
+    tools = [tools[k] for k in tools.keys() ]
+    print(json.dumps(tools,indent=2))
+    tools = [
+        {
+            "type": 'function',
+            "function": tool
+        }
+        for tool in tools
+    ]
+    run_conversation(query, tools=tools, stream=False)
+    # run_conversation(query, tools=[tools[k] for k in tools.keys() ], stream=False)
+
+    # logger.info("\n=========== next conversation ===========")
 
     query = "帮我查询北京的天气怎么样"
-    run_conversation(query, tools=tools, stream=True)
+    # print(json.dumps(tools,indent=2))
+    run_conversation(query, tools=tools, stream=False)
+    # run_conversation(query, tools=[tools[k] for k in tools.keys() ], stream=False)

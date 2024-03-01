@@ -24,7 +24,7 @@ def run_conversation(query: str, stream=False, tools=None, max_retry=5):
     api_key = "EMPTY"
     )
     # client = OpenAI(
-    #     api_key = "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"
+    #     api_key = ""
     # )
     response = client.chat.completions.create(
         model='chatglm3',
@@ -106,9 +106,9 @@ def run_conversation(query: str, stream=False, tools=None, max_retry=5):
 
 if __name__ == "__main__":
     from openai import OpenAI
-    client = OpenAI(
-        api_key = "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"
-    )
+    # client = OpenAI(
+    #     api_key = ""
+    # )
 
     tools = [
     {

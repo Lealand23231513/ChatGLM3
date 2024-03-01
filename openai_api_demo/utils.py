@@ -97,7 +97,7 @@ def generate_stream_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokeni
                     "completion_tokens": total_len - input_echo_len,
                     "total_tokens": total_len,
                 },
-                "finish_reason": "function_call" if stop_found else None,
+                "finish_reason": "tool_calls" if stop_found else None,
             }
 
             if stop_found:
@@ -133,7 +133,7 @@ def process_chatglm_messages(messages, tools=None):
 
     for m in _messages:
         role, content, tool_calls = m.role, m.content, m.tool_calls
-        if role == "function":
+        if role == "function" or role == "tool":
             messages.append(
                 {
                     "role": "observation",
@@ -142,13 +142,15 @@ def process_chatglm_messages(messages, tools=None):
             )
 
         elif role == "assistant" and tool_calls is not None:
-            for response in content.split("<|assistant|>"):
-                metadata, sub_content = response.split("\n", maxsplit=1)
+            for tool_call in tool_calls:
+                metadata = tool_call.function.name
+                params = json.loads('{"location": "San Francisco", "unit": "celsius"}')
+                rebuild_content = "```python\ntool_call("+ ", ".join([f"{k}=\'{params[k]}\'" if isinstance(params[k],str) else f"{k}={params[k]}" for k in params.keys()])+")\n```"
                 messages.append(
                     {
                         "role": role,
                         "metadata": metadata,
-                        "content": sub_content.strip()
+                        "content": rebuild_content
                     }
                 )
         else:

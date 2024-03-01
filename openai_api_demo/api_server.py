@@ -96,6 +96,7 @@ class ToolCallResponse(BaseModel):
     function: FunctionCallResponse
     id: str
     type: str = 'function'
+    index: int 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
@@ -107,7 +108,7 @@ class ChatMessage(BaseModel):
 class DeltaMessage(BaseModel):
     role: Optional[Literal["user", "assistant", "system"]] = None
     content: Optional[str] = None
-    function_call: Optional[FunctionCallResponse] = None
+    tool_calls: Optional[List[ToolCallResponse]] = None
 
 
 ## for Embedding
@@ -156,7 +157,7 @@ class ChatCompletionResponseChoice(BaseModel):
 
 class ChatCompletionResponseStreamChoice(BaseModel):
     delta: DeltaMessage
-    finish_reason: Optional[Literal["stop", "length", "function_call"]]
+    finish_reason: Optional[Literal["stop", "length", "tool_calls"]]
     index: int
 
 
@@ -239,57 +240,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
     logger.debug(f"==== request ====\n{gen_params}")
 
     if request.stream:
-
-        # Use the stream mode to read the first few characters, if it is not a function call, direct stram output
-        predict_stream_generator = predict_stream(request.model, gen_params)
-        output = next(predict_stream_generator)
-        if not contains_custom_function(output):
-            return EventSourceResponse(predict_stream_generator, media_type="text/event-stream")
-
-        # Obtain the result directly at one time and determine whether tools needs to be called.
-        logger.debug(f"First result output：\n{output}")
-
-        function_call = None
-        if output and request.tools:
-            try:
-                function_call = process_response(output, use_tool=True)
-            except:
-                logger.warning("Failed to parse tool call")
-
-        # CallFunction
-        if isinstance(function_call, dict):
-            function_call = FunctionCallResponse(**function_call)
-
-            """
-            In this demo, we did not register any tools.
-            You can use the tools that have been implemented in our `tools_using_demo` and implement your own streaming tool implementation here.
-            Similar to the following method:
-                function_args = json.loads(function_call.arguments)
-                tool_response = dispatch_tool(tool_name: str, tool_params: dict)
-            """
-            tool_response = ""
-
-            if not gen_params.get("messages"):
-                gen_params["messages"] = []
-
-            gen_params["messages"].append(ChatMessage(
-                role="assistant",
-                content=output,
-            ))
-            gen_params["messages"].append(ChatMessage(
-                role="function",
-                name=function_call.name,
-                content=tool_response,
-            ))
-
-            # Streaming output of results after function calls
-            generate = predict(request.model, gen_params)
-            return EventSourceResponse(generate, media_type="text/event-stream")
-
-        else:
-            # Handled to avoid exceptions in the above parsing function process.
-            generate = parse_output_text(request.model, output)
-            return EventSourceResponse(generate, media_type="text/event-stream")
+        generate = predict(request.model, gen_params)
+        return EventSourceResponse(generate, media_type="text/event-stream")
 
     # Here is the handling of stream = False
     response = generate_chatglm3(model, tokenizer, gen_params)
@@ -313,7 +265,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
         tool_calls = [ToolCallResponse(
             function=function_call,
             id='',# TODO: generate tool_call id
-            type='function'
+            type='function',
+            index = 0
         )]
     message = ChatMessage(
         role="assistant",
@@ -342,13 +295,77 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
 async def predict(model_id: str, params: dict):
     global model, tokenizer
-
+    if params['tools']:# probably use tool
+        response = generate_chatglm3(model, tokenizer, params)
+        logger.debug(f"==== response ====\n{response}")
+        if response["text"].startswith("\n"):
+            response["text"] = response["text"][1:]
+        response["text"] = response["text"].strip()
+        usage = UsageInfo()
+        function_call, finish_reason = None, "stop"
+        try:
+            function_call = process_response(response["text"], use_tool=True)
+        except:
+            logger.warning("Failed to parse tool call, maybe the response is not a tool call or have been answered.")
+        tool_calls = None
+        if isinstance(function_call, dict):#TODO: only one tool call
+            finish_reason = "tool_calls"
+            function_call = FunctionCallResponse(**function_call)
+            tool_calls = [ToolCallResponse(
+                function=function_call,
+                id='',# TODO: generate tool_call id
+                type='function',
+                index=0
+            )]
+        delta = DeltaMessage(
+            role="assistant",
+            # content=None,
+            content=response["text"] if tool_calls is None else None,
+            tool_calls=tool_calls,
+        )
+        choice_data = ChatCompletionResponseStreamChoice(
+            index=0,
+            delta=delta,
+            finish_reason=finish_reason,
+        )
+        chunk = ChatCompletionResponse(
+            model=model_id,
+            id="",
+            choices=[choice_data],
+            created=int(time.time()),
+            object="chat.completion.chunk"
+        )
+        yield "{}".format(chunk.model_dump_json(exclude_unset=True))
+        task_usage = UsageInfo.model_validate(response["usage"])
+        for usage_key, usage_value in task_usage.model_dump().items():
+            setattr(usage, usage_key, getattr(usage, usage_key) + usage_value)
+        message = DeltaMessage(
+            role="assistant",
+            content='',
+            tool_calls=None,
+        )
+        choice_data = ChatCompletionResponseStreamChoice(
+            index=0,
+            delta=message,
+            finish_reason=finish_reason,
+        )
+        chunk = ChatCompletionResponse(
+            model=model_id,
+            id="",
+            choices=[choice_data],
+            object="chat.completion.chunk",
+            created=int(time.time()),
+            usage=usage
+        )
+        yield "{}".format(chunk.model_dump_json(exclude_unset=True))
+        yield '[DONE]'
+    #not tool calls
     choice_data = ChatCompletionResponseStreamChoice(
         index=0,
         delta=DeltaMessage(role="assistant"),
         finish_reason=None
     )
-    chunk = ChatCompletionResponse(model=model_id, id="", choices=[choice_data], object="chat.completion.chunk")
+    chunk = ChatCompletionResponse(model=model_id, id="", choices=[choice_data], object="chat.completion.chunk", created=int(time.time()))
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     previous_text = ""
@@ -358,24 +375,12 @@ async def predict(model_id: str, params: dict):
         previous_text = decoded_unicode
 
         finish_reason = new_response["finish_reason"]
-        if len(delta_text) == 0 and finish_reason != "function_call":
+        if len(delta_text) == 0:
             continue
-
-        function_call = None
-        if finish_reason == "function_call":
-            try:
-                function_call = process_response(decoded_unicode, use_tool=True)
-            except:
-                logger.warning(
-                    "Failed to parse tool call, maybe the response is not a tool call or have been answered.")
-
-        if isinstance(function_call, dict):
-            function_call = FunctionCallResponse(**function_call)
-
         delta = DeltaMessage(
-            content=delta_text,
             role="assistant",
-            function_call=function_call if isinstance(function_call, FunctionCallResponse) else None,
+            content=delta_text,
+            tool_calls=None,
         )
 
         choice_data = ChatCompletionResponseStreamChoice(
@@ -387,6 +392,7 @@ async def predict(model_id: str, params: dict):
             model=model_id,
             id="",
             choices=[choice_data],
+            created=int(time.time()),
             object="chat.completion.chunk"
         )
         yield "{}".format(chunk.model_dump_json(exclude_unset=True))
@@ -400,6 +406,7 @@ async def predict(model_id: str, params: dict):
         model=model_id,
         id="",
         choices=[choice_data],
+        created=int(time.time()),
         object="chat.completion.chunk"
     )
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
@@ -443,7 +450,7 @@ def predict_stream(model_id, gen_params):
                 message = DeltaMessage(
                     content="",
                     role="assistant",
-                    function_call=None,
+                    tool_calls=None,
                 )
                 choice_data = ChatCompletionResponseStreamChoice(
                     index=0,
@@ -464,7 +471,7 @@ def predict_stream(model_id, gen_params):
             message = DeltaMessage(
                 content=send_msg,
                 role="assistant",
-                function_call=None,
+                tool_calls=None,
             )
             choice_data = ChatCompletionResponseStreamChoice(
                 index=0,

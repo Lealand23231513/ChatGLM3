@@ -302,21 +302,21 @@ async def predict(model_id: str, params: dict):
             response["text"] = response["text"][1:]
         response["text"] = response["text"].strip()
         usage = UsageInfo()
-        function_call, finish_reason = None, "stop"
-        try:
-            function_call = process_response(response["text"], use_tool=True)
-        except:
-            logger.warning("Failed to parse tool call, maybe the response is not a tool call or have been answered.")
+        finish_reason = response['finish_reason']
         tool_calls = None
-        if isinstance(function_call, dict):#TODO: only one tool call
-            finish_reason = "tool_calls"
-            function_call = FunctionCallResponse(**function_call)
-            tool_calls = [ToolCallResponse(
-                function=function_call,
-                id='',# TODO: generate tool_call id
-                type='function',
-                index=0
-            )]
+        if finish_reason == 'tool_calls':
+            try:
+                function_call = process_response(response["text"], use_tool=True)
+            except Exception as e:
+                logger.error(f"When parsing tool call, an error occur: {e}")
+            if isinstance(function_call, dict):#TODO: only one tool call
+                function_call = FunctionCallResponse(**function_call)
+                tool_calls = [ToolCallResponse(
+                    function=function_call,
+                    id='',# TODO: generate tool_call id
+                    type='function',
+                    index=0
+                )]
         delta = DeltaMessage(
             role="assistant",
             # content=None,

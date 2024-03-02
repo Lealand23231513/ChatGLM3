@@ -4,6 +4,8 @@ import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from transformers.generation.logits_process import LogitsProcessor
 from typing import Union, Tuple
+from loguru import logger
+import re
 
 
 class InvalidScoreLogitsProcessor(LogitsProcessor):
@@ -17,9 +19,11 @@ class InvalidScoreLogitsProcessor(LogitsProcessor):
 
 
 def process_response(output: str, use_tool: bool = False) -> Union[str, dict]:
-    content = ""
     for response in output.split("<|assistant|>"):
+        if re.search(r"(```python\s*tool_call)[\s\S]*(```)", response) is None:
+            continue
         metadata, content = response.split("\n", maxsplit=1)
+        logger.debug(f"metadata:{metadata}\ncontent:{content}")
         if not metadata.strip():
             content = content.strip()
             content = content.replace("[[训练时间]]", "2023年")
@@ -40,6 +44,7 @@ def process_response(output: str, use_tool: bool = False) -> Union[str, dict]:
                     "name": metadata.strip(),
                     "content": content
                 }
+    logger.debug(f"final content: {content}")
     return content
 
 
@@ -159,8 +164,13 @@ def process_chatglm_messages(messages, tools=None):
 
 
 def generate_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, params: dict):
+    is_tool_call = False
     for response in generate_stream_chatglm3(model, tokenizer, params):
-        pass
+        # logger.debug(f"==== response prefix ====\n{response}")
+        if response['finish_reason'] == 'tool_calls':
+            is_tool_call = True
+    if is_tool_call == True:
+            response['finish_reason'] = 'tool_calls'
     return response
 
 

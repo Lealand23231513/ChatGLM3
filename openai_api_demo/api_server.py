@@ -52,7 +52,7 @@ MODEL_PATH = os.environ.get('MODEL_PATH', 'THUDM/chatglm3-6b')
 TOKENIZER_PATH = os.environ.get("TOKENIZER_PATH", MODEL_PATH)
 
 # set Embedding Model path
-EMBEDDING_PATH = os.environ.get('EMBEDDING_PATH', 'BAAI/bge-large-zh-v1.5')
+EMBEDDING_PATH = os.environ.get('EMBEDDING_PATH', 'BAAI/bge-m3')
 
 
 @asynccontextmanager
@@ -113,7 +113,7 @@ class DeltaMessage(BaseModel):
 
 ## for Embedding
 class EmbeddingRequest(BaseModel):
-    input: List[str]
+    input: str|List[str]|List[int]|List[List[int]]
     model: str
 
 
@@ -178,8 +178,18 @@ async def health() -> Response:
 
 @app.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def get_embeddings(request: EmbeddingRequest):
-    embeddings = [embedding_model.encode(text) for text in request.input]
-    embeddings = [embedding.tolist() for embedding in embeddings]
+    if isinstance(request.input[0], int):
+        encoding = tiktoken.get_encoding('cl100k_base')
+        texts = [encoding.decode(cast(List[int], request.input))]
+    elif isinstance(request.input, str):
+        texts = [request.input]
+    elif isinstance(request.input[0], list):
+        encoding = tiktoken.get_encoding('cl100k_base')
+        texts = [encoding.decode(cast(List[int], tokens)) for tokens in request.input ]
+    else:
+        texts = cast(List[str], request.input)
+    embeddings = [embedding_model.encode(text) for text in texts]
+    embeddings = [embedding.tolist() for embedding in embeddings]# type:ignore
 
     def num_tokens_from_string(string: str) -> int:
         """
@@ -202,9 +212,9 @@ async def get_embeddings(request: EmbeddingRequest):
         "model": request.model,
         "object": "list",
         "usage": CompletionUsage(
-            prompt_tokens=sum(len(text.split()) for text in request.input),
+            prompt_tokens=sum(len(text.split()) for text in texts),
             completion_tokens=0,
-            total_tokens=sum(num_tokens_from_string(text) for text in request.input),
+            total_tokens=sum(num_tokens_from_string(text) for text in texts),
         )
     }
     return response

@@ -14,7 +14,7 @@ variable formate as xxx.xxx (just for check, not need a real key).
 
 from zhipuai import ZhipuAI
 
-base_url = "http://127.0.0.1:8000/v1/"
+base_url = "http://127.0.0.1:6006/v1/"
 client = ZhipuAI(api_key="EMP.TY", base_url=base_url)
 
 
@@ -86,7 +86,7 @@ def simple_chat(use_stream=True):
 
 def embedding():
     response = client.embeddings.create(
-        model="bge-large-zh-1.5",
+        model="bge-m3",
         input=["ChatGLM3-6B 是一个大型的中英双语模型。"],
     )
     embeddings = response.data[0].embedding
